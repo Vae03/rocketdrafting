@@ -1,5 +1,5 @@
-import { DraftArena } from "@/components/draft-arena";
+import { AppShell } from "@/components/app-shell";
 
 export default function Home() {
-  return <main><DraftArena /></main>;
+  return <AppShell />;
 }

@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Env
+.env
+.env*.local
+
+# Database
+prisma/dev.db
+prisma/dev.db-journal
+
+# Build artifacts
+*.tsbuildinfo
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+
+# Logs
+npm-debug.log*

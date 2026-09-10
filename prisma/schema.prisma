@@ -75,3 +75,36 @@ model UserProgress {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// Anonymous ranked identity, keyed by a random ID generated client-side and stored in
+// localStorage (see PLAYER_KEY_STORAGE_KEY) -- same "replace with real auth later" pattern
+// as UserProgress.userKey above.
+model PlayerIdentity {
+  id                String   @id @default(cuid())
+  playerKey         String   @unique
+  displayName       String
+  isBot             Boolean  @default(false)
+  mmr               Int      @default(600)
+  wins              Int      @default(0)
+  losses            Int      @default(0)
+  lastTeamPower     Float?
+  lastTeamSummary   String? // JSON: [{handle, rating, role}] snapshot shown to whoever gets matched against this player
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  matchesAsChallenger Match[] @relation("Challenger")
+  matchesAsOpponent   Match[] @relation("Opponent")
+}
+
+model Match {
+  id              String   @id @default(cuid())
+  challengerId    String
+  opponentId      String
+  challenger      PlayerIdentity @relation("Challenger", fields: [challengerId], references: [id], onDelete: Cascade)
+  opponent        PlayerIdentity @relation("Opponent", fields: [opponentId], references: [id], onDelete: Cascade)
+  challengerPower Float
+  opponentPower   Float
+  challengerWon   Boolean
+  score           String
+  mmrDelta        Int
+  playedAt        DateTime @default(now())
+}

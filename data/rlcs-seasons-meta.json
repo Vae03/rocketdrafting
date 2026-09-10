@@ -1,0 +1,67 @@
+[
+  {
+    "slug": "rlcs-s1",
+    "name": "RLCS Season 1",
+    "year": 2016
+  },
+  {
+    "slug": "rlcs-s2",
+    "name": "RLCS Season 2",
+    "year": 2016
+  },
+  {
+    "slug": "rlcs-s3",
+    "name": "RLCS Season 3",
+    "year": 2017
+  },
+  {
+    "slug": "rlcs-s4",
+    "name": "RLCS Season 4",
+    "year": 2017
+  },
+  {
+    "slug": "rlcs-s5",
+    "name": "RLCS Season 5",
+    "year": 2018
+  },
+  {
+    "slug": "rlcs-s6",
+    "name": "RLCS Season 6",
+    "year": 2018
+  },
+  {
+    "slug": "rlcs-s7",
+    "name": "RLCS Season 7",
+    "year": 2019
+  },
+  {
+    "slug": "rlcs-s8",
+    "name": "RLCS Season 8",
+    "year": 2019
+  },
+  {
+    "slug": "rlcs-2021-22",
+    "name": "RLCS 2021–22",
+    "year": 2021
+  },
+  {
+    "slug": "rlcs-2022-23",
+    "name": "RLCS 2022–23",
+    "year": 2022
+  },
+  {
+    "slug": "rlcs-2024",
+    "name": "RLCS 2024",
+    "year": 2024
+  },
+  {
+    "slug": "rlcs-2025",
+    "name": "RLCS 2025",
+    "year": 2025
+  },
+  {
+    "slug": "rlcs-2026",
+    "name": "RLCS 2026",
+    "year": 2026
+  }
+]
