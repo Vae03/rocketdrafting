@@ -1,0 +1,40 @@
+{
+  "importedAt": "2026-09-10T15:26:50.051Z",
+  "sourceUrl": "https://liquipedia.net/rocketleague/Rocket_League_Championship_Series/Season_X",
+  "season": {
+    "slug": "rlcs-x",
+    "name": "RLCS Season X",
+    "year": 2020,
+    "page": "Rocket_League_Championship_Series/Season_X"
+  },
+  "page": {
+    "batchcomplete": "",
+    "query": {
+      "normalized": [
+        {
+          "from": "Rocket_League_Championship_Series/Season_X",
+          "to": "Rocket League Championship Series/Season X"
+        }
+      ],
+      "pages": {
+        "84613": {
+          "pageid": 84613,
+          "ns": 0,
+          "title": "Rocket League Championship Series/Season X",
+          "revisions": [
+            {
+              "timestamp": "2026-07-03T15:25:41Z",
+              "slots": {
+                "main": {
+                  "contentmodel": "wikitext",
+                  "contentformat": "text/x-wiki",
+                  "*": "{{DISPLAYTITLE:Rocket League Championship Series Season X - Finals}}\n{{Rocket League Championship Series Navbox Top}}\n{{Tabs static\n|name1=Finals |link1=Rocket League Championship Series/Season X\n|name2=Rankings|link2=Rocket League Championship Series/Season X/Rankings\n|name3=Fall |link3=Rocket League Championship Series/Season X/Fall\n|name4=Winter |link4=Rocket League Championship Series/Season X/Winter\n|name5=Spring |link5=Rocket League Championship Series/Season X/Spring\n|This=1}}\n{{Tabs static\n|name1=<s>Cancelled Worlds</s> |link1=Rocket League Championship Series/Season X\n|name2=European Championship|link2=Rocket League Championship Series/Season X/Championships/Europe\n|name3=North American Championship |link3=Rocket League Championship Series/Season X/Championships/North America\n|name4=Oceanic Championship |link4=Rocket League Championship Series/Season X/Championships/Oceania\n|name5=South American Championship |link5=Rocket League Championship Series/Season X/Championships/South America\n|name6=3v3 Show Matches |link6=Rocket League Championship Series/Season X/Championships/3v3 Show Matches\n|name7=2v2 Show Matches |link7=Rocket League Championship Series/Season X/Championships/2v2 Show Matches\n|This=1}}\n{{Infobox league\n|liquipediatier=\n|series=Rocket League Championship Series\n|name=RLCS Season X - Finals\n|tickername=RLCS X - Finals\n|shortname=Season X - Finals\n|image=RLCS X lightmode.png\n|imagedark=RLCS X darkmode.png\n|icon=RLCS 2020 lightmode icon.png\n|icondark=RLCS 2020 darkmode icon.png\n|organizer=Psyonix\n|sponsor=\n|mode=3v3\n|type=Online\n|country=World\n|rulebook=https://cdn.battlefy.com/helix/images/leagues-v2/rlcs/RLCS-X-Rules.pdf\n|prizepoolusd=\n|twitch=rocketleague\n|youtube=channel/UCdKuPY64fEpI4cdlBSyvEJw\n|twitch2=\n|twitch3=\n|twitter=RLESports\n|sdate=\n|edate=\n|website=http://www.rocketleagueesports.com/\n|map1=DFH Stadium\n|map2=Mannfield\n|map3=Urban Central\n|map4=Utopia Coliseum\n|map5=Wasteland\n|map6=Neo Tokyo\n|map7=AquaDome\n|map8=Champions Field\n|team_number=16\n|previous=Rocket_League_Championship_Series/Season_9{{!}}Season 9\n|next=Rocket_League_Championship_Series/2021-22{{!}}2021-22\n}}\n{{cancelled Tournament|confirmed=true|ref=<ref name=\"worlds\"/>|note=The tournament has been divided into online '''[[/Championships/Europe|European]]''', '''[[/Championships/North America|North American]]''', '''[[/Championships/Oceania|Oceanic]]''' and '''[[/Championships/South America|South American]]''' Regional Championships}}\n\n==About==\n<section begin=\"Intro\"/>'''RLCS Season X ''' is the second [[RLCS]] season in 2020, crossing over into 2021. This season introduces major changes to the RLCS system with League Play and bi-annual seasons being abandoned, replaced with an open circuit. 3 splits - Fall, Winter, Spring - each have 3 regional events leading into an international major. Within all these events, each team collects points that will determine whether they will qualify for the World Championship.<section end=\"Intro\"/>\n\n<big>'''On April 15th, the World Championship was announced to be divided into 4 Regional Championships due to the COVID-19 pandemic.'''</big> <ref name=\"worlds\">{{cite web|url=https://esports.rocketleague.com/news/introducing-the-rlcs-x-championships/|title=Introducing the RLCS X Championships|date=2021-04-15|author=[[RLCS]]}}</ref>\n<br><br>'''Please use the 2nd set of tabs above or the list below to head to one of the Regional Championship pages:'''<br>\n*'''{{Flag|eu}} [[Rocket League Championship Series/Season X/Championships/Europe|European Championship]]'''\n*'''{{Flag|usca}} [[Rocket League Championship Series/Season X/Championships/North America|North American Championship]]'''\n*'''{{Flag|oceania}} [[Rocket League Championship Series/Season X/Championships/Oceania|Oceanic Championship]]'''\n*'''{{Flag|sam}} [[Rocket League Championship Series/Season X/Championships/South America|South American Championship]]'''\n\n==External Links==\n*[https://www.rocketleagueesports.com/news/announcing-rlcs-x/ Announcement Post]\n*[https://cdn.battlefy.com/helix/images/leagues-v2/rlcs/RLCS-X-Rules.pdf Rules]\n\n==References==\n{{Reflist}}\n<br/>\n{{Rocket League Championship Series Navbox}}"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

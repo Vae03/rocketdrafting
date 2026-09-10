@@ -1,0 +1,77 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STARTER
+  SUBSTITUTE
+  COACH
+}
+
+model Season {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  year       Int
+  createdAt DateTime @default(now())
+  sourceUrl String?
+  sourcedAt DateTime?
+  rosters   Roster[]
+}
+
+model Organization {
+  id      String   @id @default(cuid())
+  name    String   @unique
+  region  String
+  rosters Roster[]
+}
+
+model Person {
+  id       String        @id @default(cuid())
+  handle   String        @unique
+  fullName String?
+  country  String?
+  photoUrl String? // Only store portraits with a usable license/permission.
+  ratings  RosterMember[]
+}
+
+model Roster {
+  id             String         @id @default(cuid())
+  seasonId       String
+  organizationId String
+  placement      Int
+  rankingPoints  Int?
+  sourceUrl      String?
+  sourcedAt      DateTime?
+  season         Season         @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members        RosterMember[]
+
+  @@unique([seasonId, organizationId])
+}
+
+model RosterMember {
+  id       String @id @default(cuid())
+  rosterId String
+  personId String
+  role     Role
+  rating   Int    // validated in application/API: 0–100
+  roster   Roster @relation(fields: [rosterId], references: [id], onDelete: Cascade)
+  person   Person @relation(fields: [personId], references: [id])
+
+  @@unique([rosterId, personId, role])
+}
+
+model UserProgress {
+  id        String   @id @default(cuid())
+  userKey   String   @unique // replace with an auth-provider user ID later
+  xp        Int      @default(0)
+  level     Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
