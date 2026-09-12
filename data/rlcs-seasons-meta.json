@@ -40,6 +40,11 @@
     "year": 2019
   },
   {
+    "slug": "rlcs-x",
+    "name": "RLCS Season X",
+    "year": 2020
+  },
+  {
     "slug": "rlcs-2021-22",
     "name": "RLCS 2021–22",
     "year": 2021
@@ -62,6 +67,11 @@
   {
     "slug": "rlcs-2026",
     "name": "RLCS 2026",
+    "year": 2026
+  },
+  {
+    "slug": "community",
+    "name": "Community & Rising Talent",
     "year": 2026
   }
 ]

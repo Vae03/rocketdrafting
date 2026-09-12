@@ -12,6 +12,10 @@ export type DraftCard = {
   region: string;
   /** Optional licensed/hosted portrait URL. Undefined cards render an initials avatar. */
   imageUrl?: string;
+  /** Liquipedia infobox country name (e.g. "Germany"), used to render a flag emoji. */
+  country?: string;
+  /** Rarer +3-rating variant of a top player's best appearance (capped at 99). */
+  isHolo?: boolean;
 };
 
 export type Season = {
@@ -42,4 +46,5 @@ export type TournamentResult = {
   opponentPower: number;
   won: boolean;
   score: string;
+  games: { won: boolean; myGoals: number; theirGoals: number }[];
 };

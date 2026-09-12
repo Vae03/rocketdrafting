@@ -6,6 +6,9 @@ import { BOT_ROSTER, botPower } from "@/lib/bots";
 
 type RosterSlot = { handle: string; rating: number; role: string };
 
+// A minimal fallback so a bot row always has *some* valid lastTeamPower if this route is ever hit
+// before /api/online/queue has run for that bot (queue's own ensureBots builds the real roster+org
+// and overwrites this on the next queue call — kept here only so match simulation never sees null).
 async function ensureBots() {
   await Promise.all(
     BOT_ROSTER.map((bot) =>
@@ -18,7 +21,7 @@ async function ensureBots() {
           isBot: true,
           mmr: bot.mmr,
           lastTeamPower: botPower(bot.mmr),
-          lastTeamSummary: JSON.stringify([]),
+          lastTeamSummary: JSON.stringify({ roster: [], org: null }),
         },
       }),
     ),
@@ -31,6 +34,8 @@ export async function POST(req: NextRequest) {
   const teamPower = typeof body?.teamPower === "number" && Number.isFinite(body.teamPower) ? body.teamPower : null;
   const displayName = typeof body?.displayName === "string" && body.displayName.trim() ? body.displayName.trim().slice(0, 24) : null;
   const teamSummary: RosterSlot[] = Array.isArray(body?.teamSummary) ? body.teamSummary.slice(0, 5) : [];
+  const org = body?.org && typeof body.org === "object" ? body.org : null;
+  const opponentId = typeof body?.opponentId === "string" ? body.opponentId : null;
 
   if (!playerKey || teamPower === null || teamPower <= 0) {
     return NextResponse.json({ error: "playerKey and a positive teamPower are required" }, { status: 400 });
@@ -38,27 +43,32 @@ export async function POST(req: NextRequest) {
 
   await ensureBots();
 
+  const storedSummary = JSON.stringify({ roster: teamSummary, org });
   const self = await prisma.playerIdentity.upsert({
     where: { playerKey },
-    update: { lastTeamPower: teamPower, lastTeamSummary: JSON.stringify(teamSummary), ...(displayName ? { displayName } : {}) },
+    update: { lastTeamPower: teamPower, lastTeamSummary: storedSummary, ...(displayName ? { displayName } : {}) },
     create: {
       playerKey,
       displayName: displayName ?? `Rookie-${playerKey.slice(0, 4).toUpperCase()}`,
       mmr: STARTING_MMR,
       lastTeamPower: teamPower,
-      lastTeamSummary: JSON.stringify(teamSummary),
+      lastTeamSummary: storedSummary,
     },
   });
 
-  const candidates = await prisma.playerIdentity.findMany({
-    where: { id: { not: self.id }, lastTeamPower: { not: null } },
-  });
-  if (candidates.length === 0) {
+  // Prefer the specific opponent identified during /api/online/queue (so the alternating draft
+  // you just watched is the same opponent you're actually being scored against); fall back to a
+  // fresh closest-MMR search for resilience (e.g. direct API use, or the queued opponent vanished).
+  const opponent = opponentId
+    ? await prisma.playerIdentity.findUnique({ where: { id: opponentId } })
+    : await (async () => {
+      const candidates = await prisma.playerIdentity.findMany({ where: { id: { not: self.id }, lastTeamPower: { not: null } } });
+      if (candidates.length === 0) return null;
+      return candidates.reduce((closest, candidate) => Math.abs(candidate.mmr - self.mmr) < Math.abs(closest.mmr - self.mmr) ? candidate : closest);
+    })();
+  if (!opponent) {
     return NextResponse.json({ error: "No opponents available yet — try again in a moment" }, { status: 503 });
   }
-  const opponent = candidates.reduce((closest, candidate) =>
-    Math.abs(candidate.mmr - self.mmr) < Math.abs(closest.mmr - self.mmr) ? candidate : closest,
-  );
 
   const match = simulateDuel(teamPower, opponent.lastTeamPower!);
   const delta = mmrDelta(self.mmr, opponent.mmr, match.won);

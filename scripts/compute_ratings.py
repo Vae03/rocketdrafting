@@ -30,7 +30,7 @@ from build_rosters import load_all_seasons, team_strength
 
 ROLE_FACTOR = {"STARTER": 1.0, "SUBSTITUTE": 0.9, "COACH": 0.85}
 RATING_FLOOR = 55
-RATING_SPAN = 44  # -> ratings land in [55, 99]
+RATING_SPAN = 41  # -> non-holo ratings land in [55, 96]; holo variants (+3, emit_data.py) reach 99
 
 INDIVIDUAL_WEIGHT = 0.6
 PLACEMENT_WEIGHT = 0.4
@@ -64,9 +64,9 @@ def build_cards():
     appearances = []  # dicts, one per drafted card
     career = {}  # handle_lower -> {trophies, awards, seasons}
 
-    for meta, teams, awards in all_seasons:
+    for meta, teams, awards, prizes in all_seasons:
         for team in teams:
-            strength = team_strength(team)
+            strength = team_strength(team, prizes)
             for person in team["people"]:
                 handle_key = person["handle"].lower()
                 season_award_labels = awards.get(handle_key, [])
@@ -120,7 +120,7 @@ def build_cards():
         cards.append({
             "handle": s["handle"], "team": s["team"], "season": s["season"],
             "seasonName": s["seasonName"], "year": s["year"], "role": s["role"],
-            "region": s["region"], "rating": max(1, min(99, rating)),
+            "region": s["region"], "rating": max(1, min(96, rating)),
         })
     return cards
 

@@ -1,6 +1,7 @@
 """Phase 1: parse all cached RLCS season pages into structured roster data
 (no network calls -- pure parsing of data/liquipedia-cache/*.json)."""
 import json
+import math
 import re
 import sys
 import glob
@@ -42,7 +43,7 @@ def parse_person(content):
     return {"handle": handle, "link": link, "is_coach": is_coach, "is_sub": is_sub, "trophies": trophies_n}
 
 
-def parse_opponent(content):
+def parse_opponent(content, force_region=None):
     positional, named = parse_named_params(split_params(content))
     team_name = (positional[0] if positional else named.get("name", "?")).strip()
     players_val = named.get("players", "")
@@ -66,6 +67,8 @@ def parse_opponent(content):
             placement = int(re.sub(r"[^0-9]", "", placement_raw)) if placement_raw else None
         except ValueError:
             placement = None
+    if force_region:
+        region = force_region
     return {"team": team_name, "region": region, "placement": placement, "is_wildcard": is_wildcard, "people": people}
 
 
@@ -97,6 +100,26 @@ def extract_region(qnamed):
     return None, is_wildcard
 
 
+def parse_prize_pool(content):
+    """Returns dict: team_name -> USD prize won at this event (real Liquipedia TeamPrizePool data)."""
+    prizes = {}
+    for block_content, _, _ in find_all_templates(content, "TeamPrizePool"):
+        for slot_content, _, _ in find_all_templates(block_content, "Slot"):
+            _, snamed = parse_named_params(split_params(slot_content))
+            usd_raw = snamed.get("usdprize", "0")
+            try:
+                usd = int(re.sub(r"[^0-9]", "", usd_raw) or "0")
+            except ValueError:
+                usd = 0
+            if usd <= 0:
+                continue
+            for opp_content, _, _ in find_all_templates(slot_content, "Opponent"):
+                opp_pos, _ = parse_named_params(split_params(opp_content))
+                if opp_pos:
+                    prizes[opp_pos[0].strip()] = usd
+    return prizes
+
+
 def parse_awards(content):
     """Returns dict: lower(handle) -> list of award label strings (season-level, not regional)."""
     awards = {}
@@ -118,12 +141,13 @@ def parse_awards(content):
 def parse_season(path):
     content, season_meta, source_url = load_content(path)
     if season_meta["slug"] in CANCELLED_SEASONS or not content:
-        return season_meta, [], {}
+        return season_meta, [], {}, {}
+    force_region = season_meta.get("forceRegion")
     tp_blocks = find_all_templates(content, "TeamParticipants")
     teams_by_name = {}
     for block_content, _, _ in tp_blocks:
         for opp_content, _, _ in find_all_templates(block_content, "Opponent"):
-            team = parse_opponent(opp_content)
+            team = parse_opponent(opp_content, force_region=force_region)
             if not team["team"] or team["team"] == "TBD":
                 continue
             # Prefer the entry that actually has people + a placement; keep first seen otherwise.
@@ -132,59 +156,73 @@ def parse_season(path):
                 teams_by_name[team["team"]] = team
     teams = list(teams_by_name.values())
     awards = parse_awards(content)
-    return season_meta, teams, awards
+    prizes = parse_prize_pool(content)
+    return season_meta, teams, awards, prizes
 
 
-# Editorial region-strength weights (game-balance heuristic, not an official ranking):
-# reflects RLCS's historically deeper/stronger regions so e.g. "Europe #3" isn't ranked
-# below "Oceania #1" purely because of within-region placement number.
+# Editorial region-strength weights (game-balance heuristic, not an official ranking).
+# Explicit ordering requested: EU > MENA > NA > SAM > OCE > APAC > SSA.
 REGION_WEIGHT = {
     "Europe": 1.00,
-    "North America": 0.93,
-    "South America": 0.85,
-    "Oceania": 0.78,
-    "Middle East and North Africa": 0.75,
-    "Asia-Pacific": 0.72,
-    "Asia": 0.72,
-    "Sub-Saharan Africa": 0.68,
+    "Middle East and North Africa": 0.92,
+    "North America": 0.86,
+    "South America": 0.80,
+    "Oceania": 0.74,
+    "Asia-Pacific": 0.68,
+    "Asia": 0.68,
+    "Sub-Saharan Africa": 0.62,
 }
 DEFAULT_REGION_WEIGHT = 0.75
 
 
-def team_strength(team):
+def team_strength(team, prizes=None):
     weight = REGION_WEIGHT.get(team["region"], DEFAULT_REGION_WEIGHT)
     placement = team["placement"] or 6
     within_region = max(1.0 - (placement - 1) * 0.12, 0.35)
     # A Last Chance Qualifier / wildcard spot means the team wasn't strong enough to qualify
     # directly from its region -- placement=1 in an LCQ bracket is not placement=1 in the region.
     wildcard_penalty = 0.7 if team.get("is_wildcard") else 1.0
-    return weight * within_region * wildcard_penalty
+    base = weight * within_region * wildcard_penalty
+    # Real prize money, when Liquipedia records it per-team for that event (sparse -- only
+    # explicit in some seasons' prize pool tables): a small nudge, never a penalty when absent.
+    usd = (prizes or {}).get(team["team"], 0)
+    earnings_bonus = min(0.05, math.log10(usd / 1000 + 1) * 0.012) if usd > 0 else 0.0
+    return base + earnings_bonus
 
 
-def rank_key(team):
-    return -team_strength(team)
-
-
-def top_n(teams, n=TOP_N_TEAMS):
-    ordered = sorted(teams, key=rank_key)
+def top_n(teams, prizes=None, n=TOP_N_TEAMS):
+    ordered = sorted(teams, key=lambda t: -team_strength(t, prizes))
     return ordered[:n]
 
 
 def load_all_seasons():
-    all_seasons = []
+    # Season X's Worlds LAN was replaced by 4 separate regional championships (COVID-19);
+    # data/liquipedia-cache/rlcs-x-<region>.json holds one each. Merge them into one season here
+    # before ranking, so "top 20 teams cumulated across regions" applies across all four.
+    merged = {}  # merge_slug -> (meta, teams, awards, prizes)
     for path in sorted(glob.glob(CACHE_DIR + r"\*.json")):
-        meta, teams, awards = parse_season(path)
+        meta, teams, awards, prizes = parse_season(path)
         if not teams:
             continue
-        selected = top_n(teams)
-        all_seasons.append((meta, selected, awards))
+        merge_slug = "rlcs-x" if meta["slug"].startswith("rlcs-x-") else meta["slug"]
+        if merge_slug not in merged:
+            display_meta = {"slug": merge_slug, "name": "RLCS Season X", "year": 2020} if merge_slug == "rlcs-x" else meta
+            merged[merge_slug] = [display_meta, [], {}, {}]
+        merged[merge_slug][1].extend(teams)
+        merged[merge_slug][2].update(awards)
+        merged[merge_slug][3].update(prizes)
+
+    all_seasons = []
+    for meta, teams, awards, prizes in merged.values():
+        selected = top_n(teams, prizes)
+        all_seasons.append((meta, selected, awards, prizes))
     return all_seasons
 
 
 def unique_people():
     """handle_lower -> {handle, link} picking the first non-empty link seen."""
     people = {}
-    for meta, teams, awards in load_all_seasons():
+    for meta, teams, awards, prizes in load_all_seasons():
         for t in teams:
             for p in t["people"]:
                 key = p["handle"].lower()
@@ -197,10 +235,10 @@ def unique_people():
 
 if __name__ == "__main__":
     all_seasons = load_all_seasons()
-    for meta, teams, awards in all_seasons:
+    for meta, teams, awards, prizes in all_seasons:
         total_people = sum(len(t["people"]) for t in teams)
         subs = sum(1 for t in teams for p in t["people"] if p["is_sub"])
         coaches = sum(1 for t in teams for p in t["people"] if p["is_coach"])
-        print(f"{meta['slug']:16s} kept={len(teams):3d} people={total_people:4d} subs={subs:3d} coaches={coaches:3d} awards={len(awards):3d}")
+        print(f"{meta['slug']:16s} kept={len(teams):3d} people={total_people:4d} subs={subs:3d} coaches={coaches:3d} awards={len(awards):3d} prizes={len(prizes):3d}")
     print("\nTOTAL seasons kept:", len(all_seasons))
     print("TOTAL unique handles:", len(unique_people()))

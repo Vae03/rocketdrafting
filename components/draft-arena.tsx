@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   championXp,
   coinsEarned,
+  coinsForStage,
   levelFromXp,
   playoffStages,
   seasonOpponents,
@@ -12,6 +13,9 @@ import {
   xpForElimination,
 } from "@/lib/simulation";
 import { seasons as allSeasons, seedCards } from "@/lib/seed-data";
+import { useTranslation } from "@/components/i18n-provider";
+import { countryToIso } from "@/lib/flags";
+import { FlagIcon } from "@/components/flag-icon";
 import { incrementStat, raiseStatCeiling, todayKey, updateStats, readStats } from "@/lib/stats";
 import type { DraftCard, DraftOrganization, DraftTeam, Season, TournamentResult } from "@/lib/types";
 import {
@@ -29,35 +33,38 @@ import {
   drawOrgOffer,
   levelUpParticles,
   orgStepInfo,
+  readEquipped,
   readStoredNumber,
+  writeStoredValue,
 } from "@/components/draft-shared";
 
 const roleInfo = {
-  STARTER: { title: "Choose your starter", detail: "Pick 1 of 3 elite players", accent: "01" },
-  SUBSTITUTE: { title: "Choose your substitute", detail: "Only ever fielded as a real sub — no bench-only cards allowed", accent: "04" },
-  COACH: { title: "Choose your coach", detail: "The mastermind behind the roster", accent: "05" },
+  STARTER: { title: "Choose your starter", accent: "01" },
+  SUBSTITUTE: { title: "Choose your substitute", accent: "04" },
+  COACH: { title: "Choose your coach", accent: "05" },
 } as const;
 
-const STAGE_REVEAL_DELAY_MS = 1100;
+const STAGE_PAUSE_MS = 650;
+const GAME_REVEAL_MS = 380;
 const AUTO_REDRAFT_DELAY_MS = 4200;
 
 type DraftMode = "hardcore" | "normal" | "easy";
-const MODE_INFO: Record<DraftMode, { name: string; showRatings: boolean; maxRerolls: number; blurb: string; icon: string }> = {
-  hardcore: { name: "Hardcore", showRatings: false, maxRerolls: 0, blurb: "No ratings shown. No rerolls. Pure gut instinct.", icon: "🕶" },
-  normal: { name: "Normal", showRatings: false, maxRerolls: 3, blurb: "No ratings shown, but 3 rerolls to bail on a bad offer.", icon: "⚙" },
-  easy: { name: "Easy", showRatings: true, maxRerolls: 10, blurb: "Ratings visible, 10 rerolls to build the perfect roster.", icon: "🌤" },
+const MODE_INFO: Record<DraftMode, { name: string; showRatings: boolean; maxRerolls: number; icon: string }> = {
+  hardcore: { name: "Hardcore", showRatings: false, maxRerolls: 0, icon: "🕶" },
+  normal: { name: "Normal", showRatings: false, maxRerolls: 3, icon: "⚙" },
+  easy: { name: "Easy", showRatings: true, maxRerolls: 10, icon: "🌤" },
 };
 
 export const LEGENDS_SEASON: Season = { slug: "legends", name: "All Seasons · Legends", year: 0 };
 
 function SeasonPicker({ seasons, onPick }: { seasons: Season[]; onPick: (season: Season) => void }) {
-  return <section className="season-select">
+  return <section className="season-select freeplay-select">
     <div className="panel-title"><span>STEP 1</span><b>PICK A SEASON</b></div>
     <button onClick={() => onPick(LEGENDS_SEASON)} className="season-option legends-option">
-      <b>★ All Seasons · Legends</b><span>Draft any player from any era — Kaydop, zen and Rezears on one roster</span>
+      <b>★ All Seasons · Legends</b>
     </button>
     <div className="season-grid">
-      {seasons.map((season) => <button key={season.slug} onClick={() => onPick(season)} className="season-option">
+      {seasons.map((season) => <button key={season.slug} onClick={() => onPick(season)} className="season-option freeplay-option">
         <b>{season.name}</b><span>{season.year}</span>
       </button>)}
     </div>
@@ -69,13 +76,50 @@ function ModePicker({ onPick }: { onPick: (mode: DraftMode) => void }) {
     <div className="panel-title"><span>STEP 2</span><b>PICK A DIFFICULTY</b></div>
     <div className="mode-grid">
       {(Object.keys(MODE_INFO) as DraftMode[]).map((key) => { const m = MODE_INFO[key]; return <button key={key} onClick={() => onPick(key)} className={`mode-option mode-${key}`}>
-        <span className="mode-icon">{m.icon}</span><b>{m.name}</b><p>{m.blurb}</p>
+        <span className="mode-icon">{m.icon}</span><b>{m.name}</b>
       </button>; })}
     </div>
   </section>;
 }
 
+function LineupCard({ player, position, showRatings }: { player?: DraftCard; position: string; showRatings: boolean }) {
+  const iso = player ? countryToIso(player.country) : null;
+  return <div className={player ? `lineup-card filled${player.isHolo ? " holo-card" : ""}` : "lineup-card"}>
+    {player?.isHolo && <div className="holo-shimmer" />}
+    <small>{position}</small>
+    {player ? <>
+      <div className="lineup-card-avatar">{iso ? <FlagIcon iso={iso} className="card-flag" /> : null}<span>{player.handle.slice(0, 2).toUpperCase()}</span></div>
+      <b>{player.handle}</b>
+      <span className="lineup-card-team">{player.team}</span>
+      <strong>{showRatings ? player.rating : "??"}</strong>
+    </> : <div className="lineup-card-empty">—</div>}
+  </div>;
+}
+
+function GameRow({ game, index }: { game: TournamentResult["games"][number]; index: number }) {
+  return <div className={`game-row ${game.won ? "won" : "lost"}`} style={{ animationDelay: `${index * 40}ms` }}>
+    <span className="game-number">G{index + 1}</span>
+    <span className="game-score">{game.myGoals}–{game.theirGoals}</span>
+    <em>{game.won ? "W" : "L"}</em>
+  </div>;
+}
+
+function StagePanel({ stage, opponentName, result, isPending, revealedGames }: {
+  stage: string; opponentName: string; result?: TournamentResult; isPending: boolean; revealedGames: TournamentResult["games"];
+}) {
+  return <div className={`stage-panel ${result ? (result.won ? "won" : "lost") : isPending ? "pending" : ""}`}>
+    <div className="stage-panel-head">
+      <div className="stage-panel-title"><small>{stage.toUpperCase()}</small><b>VS {opponentName}</b></div>
+      {result && <div className="stage-panel-result"><strong>{result.score}</strong><em>{result.won ? "WIN" : "OUT"}</em></div>}
+    </div>
+    {(isPending || result) && <div className="game-log">
+      {(result ? result.games : revealedGames).map((g, i) => <GameRow key={i} game={g} index={i} />)}
+    </div>}
+  </div>;
+}
+
 export function DraftArena() {
+  const { t } = useTranslation();
   const [season, setSeason] = useState<Season | null>(null);
   const [mode, setMode] = useState<DraftMode | null>(null);
   const [team, setTeam] = useState<DraftTeam>({ starters: [] });
@@ -86,19 +130,22 @@ export function DraftArena() {
   const [xp, setXp] = useState(() => readStoredNumber(XP_STORAGE_KEY));
   const [coins, setCoins] = useState(() => readStoredNumber(COIN_STORAGE_KEY));
   const [results, setResults] = useState<TournamentResult[]>([]);
+  const [liveStageIndex, setLiveStageIndex] = useState(-1);
+  const [liveGames, setLiveGames] = useState<TournamentResult["games"]>([]);
   const [simulating, setSimulating] = useState(false);
   const [lastPick, setLastPick] = useState<DraftCard | null>(null);
   const [levelUp, setLevelUp] = useState<{ level: number; coins: number; particles: ReturnType<typeof levelUpParticles> } | null>(null);
   const [champion, setChampion] = useState(false);
 
-  useEffect(() => { try { window.localStorage.setItem(XP_STORAGE_KEY, String(xp)); } catch { /* ignore */ } }, [xp]);
-  useEffect(() => { try { window.localStorage.setItem(COIN_STORAGE_KEY, String(coins)); } catch { /* ignore */ } }, [coins]);
+  useEffect(() => { writeStoredValue(XP_STORAGE_KEY, String(xp)); }, [xp]);
+  useEffect(() => { writeStoredValue(COIN_STORAGE_KEY, String(coins)); }, [coins]);
   useEffect(() => { raiseStatCeiling("peakCoins", coins); }, [coins]);
 
+  const isLegends = season?.slug === LEGENDS_SEASON.slug;
   const seasonPool = useMemo(() => {
     if (!season) return [];
-    return season.slug === LEGENDS_SEASON.slug ? seedCards : seedCards.filter((card) => card.season === season.slug);
-  }, [season]);
+    return isLegends ? seedCards : seedCards.filter((card) => card.season === season.slug);
+  }, [season, isLegends]);
   const opponents = useMemo(() => (season ? seasonOpponents(seasonPool) : []), [season, seasonPool]);
   const picked = useMemo(() => [...team.starters, team.substitute, team.coach].filter(Boolean) as DraftCard[], [team]);
   const requiredRole: DraftCard["role"] | null = team.starters.length < 3 ? "STARTER" : !team.substitute ? "SUBSTITUTE" : !team.coach ? "COACH" : null;
@@ -129,13 +176,13 @@ export function DraftArena() {
   function pickOrg(org: DraftOrganization) {
     if (simulating) return;
     setTeam((currentTeam) => ({ ...currentTeam, organization: org }));
-    setOffer(drawOffer(seasonPool, "STARTER", []));
+    setOffer(drawOffer(seasonPool, "STARTER", [], seedCards));
   }
 
   function recordDraftCompletion(finishedTeam: DraftTeam) {
     if (!season || !mode) return;
     incrementStat("campaignDrafts", 1);
-    if (season.slug === LEGENDS_SEASON.slug) incrementStat("legendsDrafts", 1);
+    if (isLegends) incrementStat("legendsDrafts", 1);
     const finishedPower = teamPower(finishedTeam);
     raiseStatCeiling("peakPower", finishedPower);
     updateStats({
@@ -153,7 +200,7 @@ export function DraftArena() {
     const updated = requiredRole === "STARTER" ? { ...team, starters: [...team.starters, card] } : requiredRole === "SUBSTITUTE" ? { ...team, substitute: card } : { ...team, coach: card };
     setTeam(updated);
     const nextRole = updated.starters.length < 3 ? "STARTER" : !updated.substitute ? "SUBSTITUTE" : !updated.coach ? "COACH" : null;
-    if (nextRole) setOffer(drawOffer(seasonPool, nextRole, [...picked.map((player) => player.id), card.id]));
+    if (nextRole) setOffer(drawOffer(seasonPool, nextRole, [...picked.map((player) => player.id), card.id], seedCards));
     else recordDraftCompletion(updated);
   }
 
@@ -163,7 +210,7 @@ export function DraftArena() {
     setRerollsUsedThisDraft((r) => r + 1);
     incrementStat("rerollsUsed", 1);
     if (currentStep === "ORG") setOrgOffer(drawOrgOffer());
-    else setOffer(drawOffer(seasonPool, currentStep, picked.map((p) => p.id)));
+    else setOffer(drawOffer(seasonPool, currentStep, picked.map((p) => p.id), seedCards));
   }
 
   function restart() {
@@ -172,7 +219,7 @@ export function DraftArena() {
     setOffer([]);
     setRerollsLeft(mode ? MODE_INFO[mode].maxRerolls : 0);
     setRerollsUsedThisDraft(0);
-    setResults([]); setLastPick(null); setChampion(false);
+    setResults([]); setLastPick(null); setChampion(false); setLiveStageIndex(-1); setLiveGames([]);
   }
 
   async function simulate() {
@@ -180,16 +227,23 @@ export function DraftArena() {
     setSimulating(true); setResults([]); setChampion(false);
     const collected: TournamentResult[] = [];
     let xpGained = 0;
+    let coinGain = 0;
     let wonItAll = false;
     for (let i = 0; i < playoffStages.length; i++) {
-      await delay(STAGE_REVEAL_DELAY_MS);
+      setLiveStageIndex(i); setLiveGames([]);
       const match = simulateStage(team, playoffStages[i], opponents[i]);
+      for (let g = 0; g < match.games.length; g++) {
+        await delay(GAME_REVEAL_MS);
+        setLiveGames((prev) => [...prev, match.games[g]]);
+      }
+      await delay(STAGE_PAUSE_MS);
       collected.push(match);
       setResults([...collected]);
+      coinGain += coinsForStage(i, opponents[i].power);
       if (!match.won) { xpGained = xpForElimination(i); break; }
       if (i === playoffStages.length - 1) { xpGained = championXp; wonItAll = true; }
     }
-    await delay(400);
+    setLiveStageIndex(-1); setLiveGames([]);
     setSimulating(false);
 
     const underdogWinCount = collected.filter((m) => m.won && power < m.opponentPower).length;
@@ -200,8 +254,7 @@ export function DraftArena() {
       setChampion(true);
       const stats = incrementStat("campaignWins", 1);
       const newStreak = stats.campaignWinStreak + 1;
-      const bumped = { ...stats, campaignWinStreak: newStreak, campaignBestWinStreak: Math.max(stats.campaignBestWinStreak, newStreak) };
-      updateStats(bumped);
+      updateStats({ campaignWinStreak: newStreak, campaignBestWinStreak: Math.max(stats.campaignBestWinStreak, newStreak) });
       if (mode === "hardcore") incrementStat("hardcoreWins", 1);
       if (rerollsUsedThisDraft === 0) incrementStat("noRerollChampionships", 1);
       if (season) updateStats({ championshipSeasons: [...new Set([...readStats().championshipSeasons, season.slug])] });
@@ -211,38 +264,57 @@ export function DraftArena() {
     }
 
     const newXp = xp + xpGained;
-    const gained = coinsEarned(xp, newXp);
+    const levelUpGained = coinsEarned(xp, newXp);
     setXp(newXp);
-    if (gained > 0) {
-      setCoins((c) => c + gained);
-      setLevelUp({ level: levelFromXp(newXp).level, coins: gained, particles: levelUpParticles() });
+    if (coinGain > 0) setCoins((c) => c + coinGain);
+    if (levelUpGained > 0) {
+      setCoins((c) => c + levelUpGained);
+      setLevelUp({ level: levelFromXp(newXp).level, coins: levelUpGained, particles: levelUpParticles(readEquipped().fx) });
     }
     if (!wonItAll) { await delay(AUTO_REDRAFT_DELAY_MS); restart(); }
   }
 
   const current = requiredRole ? roleInfo[requiredRole] : null;
 
-  return <main className="arena">
+  return <main className="arena freeplay-arena">
     <ArenaBackdrop />
     {champion ? <ChampionOverlay title="GRAND FINAL" subtitle="RLCS CHAMPIONS" onClose={() => setChampion(false)} /> : levelUp && <LevelUpOverlay level={levelUp.level} coins={levelUp.coins} particles={levelUp.particles} onClose={() => setLevelUp(null)} />}
     <header className="topbar">
-      <div className="brand"><span className="brand-icon">RL</span><span><em>ROCKET LEAGUE</em><b>DRAFT ARENA</b></span></div>
+      <div className="brand"><span className="brand-icon">RL</span><span><em>ROCKET LEAGUE</em><b>{t("nav_freeplay")}</b></span></div>
       <div className="top-actions">
         <div className="coin-badge"><CoinIcon className="coin-icon" /><b>{coins}</b></div>
         <div className="level"><small>LEVEL {progress.level}</small><div><i style={{ width: `${progress.intoLevel / progress.nextLevelXp * 100}%` }} /></div><b>{xp} XP</b></div>
-        <button className="restart" onClick={restart}>↻ NEW DRAFT</button>
       </div>
     </header>
     <section className="stage">
-      <div className="hero-copy"><p className="kicker">RLCS HISTORY • GLOBAL DRAFT DATABASE</p><h1>CREATE YOUR<br /><span>CHAMPIONS.</span></h1><p className="intro">Five picks. One trophy. Every choice shapes your run through the Rocket League playoffs.</p></div>
+      <div className="hero-copy freeplay-hero"><p className="kicker">{t("freeplay_kicker")}</p><h1>{t("freeplay_title1")}<br /><span>{t("freeplay_title2")}</span></h1><p className="intro">{t("freeplay_intro")}</p></div>
 
       {!season ? <SeasonPicker seasons={allSeasons} onPick={pickSeason} /> : !mode ? <ModePicker onPick={pickMode} /> : <>
-        <p className="drafting-from kicker">DRAFTING FROM · <button onClick={changeSeason} className="link-button">{season.name}</button> · <button onClick={changeMode} className="link-button">{MODE_INFO[mode].name} mode (change)</button></p>
+        <p className="drafting-from kicker">DRAFTING FROM · <button onClick={changeSeason} className="link-button">{season.name}</button> · <button onClick={changeMode} className="link-button">{MODE_INFO[mode].name} mode</button> · <button onClick={restart} className="link-button">↻ restart</button></p>
         <div className="draft-progress">{["ORG", "S1", "S2", "S3", "SUB", "COACH"].map((slot, index) => { const done = index === 0 ? Boolean(team.organization) : Boolean(picked[index - 1]); const isActive = index === 0 ? !team.organization : index - 1 === picked.length && Boolean(team.organization); return <div key={slot} className={done ? "progress-node complete" : isActive ? "progress-node active" : "progress-node"}><span>{done ? "✓" : String(index + 1).padStart(2, "0")}</span><small>{slot}</small></div>; })}</div>
-        {currentStep === "ORG" ? <section className="pick-zone"><div className="pick-heading"><span>{orgStepInfo.accent}</span><div><p className="kicker">LIVE DRAFT PICK</p><h2>{orgStepInfo.title}</h2><p>{orgStepInfo.detail}</p></div><div className="pick-count">PICK <b>1</b> / 6</div></div><div className="cards">{orgOffer.map((org, index) => <OrgCard key={org.id} org={org} index={index} onPick={() => pickOrg(org)} />)}</div>{rerollsLeft > 0 && <button className="reroll-button" onClick={reroll}>🎲 REROLL ({rerollsLeft} left)</button>}</section>
-        : current ? <section className="pick-zone"><div className="pick-heading"><span>{current.accent}</span><div><p className="kicker">LIVE DRAFT PICK</p><h2>{current.title}</h2><p>{current.detail}</p></div><div className="pick-count">PICK <b>{picked.length + 2}</b> / 6</div></div><div className="cards">{offer.map((card, index) => <PlayerCard key={card.id} card={card} index={index} hideRating={!showRatings} onPick={() => pick(card)} />)}</div>{rerollsLeft > 0 && <button className="reroll-button" onClick={reroll}>🎲 REROLL ({rerollsLeft} left)</button>}{lastPick && <p className="picked-flash">✓ <b>{lastPick.handle}</b> joins your roster</p>}</section> : <section className="roster-ready"><div className="trophy">♜</div><div><p className="kicker">ROSTER COMPLETE</p><h2>YOUR DYNASTY IS READY</h2><p>Team power: <b>{showRatings ? power : "???"}</b> · Take on the {season.name} playoff bracket.</p></div><button onClick={simulate} disabled={simulating} className="playoff-button">{simulating ? "SIMULATING…" : "SIMULATE PLAYOFFS"} <span>→</span></button></section>}
-        <section className="bottom-grid"><div className="squad-panel"><div className="panel-title"><span>YOUR LINEUP</span><b>{power ? (showRatings ? `${power} POWER` : "HIDDEN") : "BUILDING"}</b></div><div className="lineup">{[...Array(5)].map((_, index) => { const player = picked[index]; const position = index < 3 ? `STARTER ${index + 1}` : index === 3 ? "SUBSTITUTE" : "COACH"; return <div className={player ? "lineup-item filled" : "lineup-item"} key={position}><span>{player ? String(index + 1).padStart(2, "0") : "—"}</span><div><small>{position}</small><b>{player?.handle ?? "Not drafted"}</b></div>{player && <strong>{showRatings ? player.rating : "?"}</strong>}</div>; })}</div><p className="power-rule">POWER = arithmetic mean of all 5 ratings + <b>{team.organization?.name} +{team.organization?.bonus}</b></p></div>
-        <div className="bracket-panel"><div className="panel-title"><span>PLAYOFF RUN</span><b>{season.name} · BO7</b></div>{playoffStages.map((stage, index) => { const result = results[index]; const isPending = simulating && index === results.length; const opponentName = result?.opponent ?? opponents[index]?.name ?? "—"; return <div className={`bracket-row ${result ? `revealed ${result.won ? "won" : "lost"}` : isPending ? "pending" : ""}`} key={stage}><div className="bracket-matchup"><TeamBadge name="YOU" size="sm" /><em className="vs">VS</em>{opponentName !== "—" && <TeamBadge name={opponentName} size="sm" />}<div><small>{stage.toUpperCase()}</small><b>{opponentName}</b></div></div><strong>{result ? result.score : isPending ? "···" : "—"}</strong><em className="bracket-status">{result ? result.won ? "WIN" : "OUT" : isPending ? "LIVE" : "WAITING"}</em></div>; })}{results.length > 0 && !simulating && <p className="xp-earned">{results.some((r) => !r.won) ? "ELIMINATED — NEW DRAFT STARTING…" : "XP AWARDED — KEEP DRAFTING"}</p>}</div></section>
+        {currentStep === "ORG" ? <section className="pick-zone"><div className="pick-heading"><span>{orgStepInfo.accent}</span><div><p className="kicker">LIVE DRAFT PICK</p><h2>{orgStepInfo.title}</h2></div><div className="pick-count">PICK <b>1</b> / 6</div></div><div className="cards">{orgOffer.map((org, index) => <OrgCard key={org.id} org={org} index={index} onPick={() => pickOrg(org)} />)}</div>{rerollsLeft > 0 && <button className="reroll-button" onClick={reroll}>🎲 REROLL ({rerollsLeft} left)</button>}</section>
+        : current ? <section className="pick-zone"><div className="pick-heading"><span>{current.accent}</span><div><p className="kicker">LIVE DRAFT PICK</p><h2>{current.title}</h2></div><div className="pick-count">PICK <b>{picked.length + 2}</b> / 6</div></div><div className="cards">{offer.map((card, index) => <PlayerCard key={card.id} card={card} index={index} hideRating={!showRatings} showSeason={isLegends} onPick={() => pick(card)} />)}</div>{rerollsLeft > 0 && <button className="reroll-button" onClick={reroll}>🎲 REROLL ({rerollsLeft} left)</button>}{lastPick && <p className="picked-flash">✓ <b>{lastPick.handle}</b> joins your roster</p>}</section> : <section className="roster-ready"><div className="trophy">♜</div><div><p className="kicker">ROSTER COMPLETE</p><h2>YOUR DYNASTY IS READY</h2><p>Team power: <b>{showRatings ? power : "???"}</b></p></div><button onClick={simulate} disabled={simulating} className="playoff-button">{simulating ? "SIMULATING…" : "SIMULATE PLAYOFFS"} <span>→</span></button></section>}
+
+        <section className="lineup-section">
+          <div className="panel-title"><span>YOUR LINEUP</span><b>{power ? (showRatings ? `${power} POWER` : "HIDDEN") : "BUILDING"}</b></div>
+          <div className="lineup-cards">
+            {[...Array(5)].map((_, index) => { const p = picked[index]; const position = index < 3 ? `STARTER ${index + 1}` : index === 3 ? "SUB" : "COACH"; return <LineupCard key={position} player={p} position={position} showRatings={showRatings} />; })}
+          </div>
+        </section>
+
+        <section className="match-section">
+          <div className="panel-title"><span>PLAYOFF RUN</span><b>{season.name} · BO7 · MATCH-BY-MATCH</b></div>
+          <div className="stage-panels">
+            {playoffStages.map((stage, index) => {
+              const result = results[index];
+              const isPending = simulating && liveStageIndex === index;
+              const opponentName = result?.opponent ?? opponents[index]?.name ?? "—";
+              if (!result && !isPending && index > results.length) return <div className="stage-panel locked" key={stage}><div className="stage-panel-head"><div className="stage-panel-title"><small>{stage.toUpperCase()}</small><b>???</b></div></div></div>;
+              return <StagePanel key={stage} stage={stage} opponentName={opponentName} result={result} isPending={isPending} revealedGames={isPending ? liveGames : []} />;
+            })}
+          </div>
+          {results.length > 0 && !simulating && <p className="xp-earned">{results.some((r) => !r.won) ? "ELIMINATED — NEW DRAFT STARTING…" : "XP + COINS AWARDED — KEEP DRAFTING"}</p>}
+        </section>
       </>}
     </section>
   </main>;

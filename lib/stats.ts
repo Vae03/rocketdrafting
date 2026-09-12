@@ -1,5 +1,7 @@
 // Central, localStorage-backed player stats. Every counter here exists because a badge
 // challenge in lib/badges.ts reads it -- see that file for the 30 challenge definitions.
+import { scopedKey } from "@/lib/profile-scope";
+
 export type PlayerStats = {
   campaignWins: number;
   campaignLosses: number;
@@ -14,6 +16,12 @@ export type PlayerStats = {
   rankedDrafts: number;
   rankedWinStreak: number;
   rankedBestWinStreak: number;
+  careerWins: number;
+  careerLosses: number;
+  careerDrafts: number;
+  careerWinStreak: number;
+  careerBestWinStreak: number;
+  careerHighestSeasonIndex: number;
   underdogWins: number;
   rerollsUsed: number;
   coinsSpent: number;
@@ -44,6 +52,12 @@ export const DEFAULT_STATS: PlayerStats = {
   rankedDrafts: 0,
   rankedWinStreak: 0,
   rankedBestWinStreak: 0,
+  careerWins: 0,
+  careerLosses: 0,
+  careerDrafts: 0,
+  careerWinStreak: 0,
+  careerBestWinStreak: 0,
+  careerHighestSeasonIndex: 0,
   underdogWins: 0,
   rerollsUsed: 0,
   coinsSpent: 0,
@@ -65,7 +79,7 @@ const STATS_KEY = "rocketdraft.stats";
 export function readStats(): PlayerStats {
   if (typeof window === "undefined") return { ...DEFAULT_STATS };
   try {
-    const raw = window.localStorage.getItem(STATS_KEY);
+    const raw = window.localStorage.getItem(scopedKey(STATS_KEY));
     return raw ? { ...DEFAULT_STATS, ...JSON.parse(raw) } : { ...DEFAULT_STATS };
   } catch {
     return { ...DEFAULT_STATS };
@@ -73,7 +87,7 @@ export function readStats(): PlayerStats {
 }
 
 export function writeStats(stats: PlayerStats) {
-  try { window.localStorage.setItem(STATS_KEY, JSON.stringify(stats)); } catch { /* ignore */ }
+  try { window.localStorage.setItem(scopedKey(STATS_KEY), JSON.stringify(stats)); } catch { /* ignore */ }
 }
 
 /** Applies a partial update (numbers add, arrays/records merge uniquely) and persists it. */

@@ -108,3 +108,74 @@ model Match {
   mmrDelta        Int
   playedAt        DateTime @default(now())
 }
+
+// Real (email + password) accounts -- separate from the anonymous, device-key-based
+// PlayerIdentity used by Ranked 1v1. Profile/Friends/Friendly Battles all key off this.
+model User {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  passwordHash    String // scrypt hash, see lib/auth.ts
+  passwordSalt    String
+  displayName     String
+  avatarEmoji     String   @default("🚀")
+  avatarColor     String   @default("#ffcf49")
+  avatarImage     String? // data: URI (png/jpeg/webp, client-resized to <=256px, size-capped server-side); takes visual priority over avatarEmoji/avatarColor when set
+  lastTeamPower   Float?
+  lastTeamSummary String? // JSON: {roster:[{handle,rating,role}], org} -- same shape as PlayerIdentity, revealed to friends during a Friendly Battle draft
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  sessions        Session[]
+  sentRequests     Friendship[] @relation("Requester")
+  receivedRequests Friendship[] @relation("Addressee")
+}
+
+// The cookie holds the raw token; only its SHA-256 is stored here, so a DB leak alone
+// doesn't hand over live sessions (same principle as storing hashed API keys).
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+}
+
+model Friendship {
+  id          String           @id @default(cuid())
+  requesterId String
+  addresseeId String
+  status      FriendshipStatus @default(PENDING)
+  requester   User             @relation("Requester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee   User             @relation("Addressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+  createdAt   DateTime         @default(now())
+
+  @@unique([requesterId, addresseeId])
+}
+
+// A casual, no-MMR-impact duel against a friend -- just a head-to-head record for bragging rights.
+model FriendlyMatch {
+  id            String   @id @default(cuid())
+  hostId        String
+  opponentId    String
+  hostPower     Float
+  opponentPower Float
+  hostWon       Boolean
+  score         String
+  playedAt      DateTime @default(now())
+}
+
+// Submissions from the public /kontakt form -- see app/api/contact/route.ts. Nothing here is
+// emailed out automatically yet (no email provider is configured); an operator reads these
+// directly, e.g. via `npx prisma studio`.
+model ContactMessage {
+  id        String   @id @default(cuid())
+  name      String?
+  email     String
+  message   String
+  createdAt DateTime @default(now())
+}

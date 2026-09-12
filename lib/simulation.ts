@@ -19,10 +19,26 @@ export function winProbability(ownPower: number, opponentPower: number) {
   return ownPower > opponentPower ? 100 - UPSET_CHANCE : UPSET_CHANCE;
 }
 
+export type GameResult = { won: boolean; myGoals: number; theirGoals: number };
+
+/** One RL game's goal line -- the winner scores 2-7, the loser trails by a random margin
+ * (closer games are more common than blowouts). Used for the match-by-match simulation view. */
+function simulateGame(won: boolean): GameResult {
+  const winnerGoals = 2 + Math.floor(Math.random() * 6);
+  const margin = 1 + Math.floor(Math.random() * Math.min(winnerGoals, 4));
+  const loserGoals = Math.max(0, winnerGoals - margin);
+  return won ? { won, myGoals: winnerGoals, theirGoals: loserGoals } : { won, myGoals: loserGoals, theirGoals: winnerGoals };
+}
+
 export function bo7(chance: number) {
   let mine = 0; let theirs = 0;
-  while (mine < 4 && theirs < 4) Math.random() * 100 < chance ? mine++ : theirs++;
-  return { won: mine === 4, score: `${mine}–${theirs}` };
+  const games: GameResult[] = [];
+  while (mine < 4 && theirs < 4) {
+    const won = Math.random() * 100 < chance;
+    games.push(simulateGame(won));
+    won ? mine++ : theirs++;
+  }
+  return { won: mine === 4, score: `${mine}–${theirs}`, games };
 }
 
 /** One Bo7 between two raw power numbers (no DraftTeam needed) -- used by the online duel API. */
@@ -36,6 +52,23 @@ export const playoffStages: PlayoffStage[] = ["Top 16", "Top 8", "Top 4", "Final
 export function simulateStage(team: DraftTeam, stage: PlayoffStage, opponent: { name: string; power: number }): TournamentResult {
   const power = teamPower(team);
   const match = bo7(winProbability(power, opponent.power));
+  return { round: stage, opponent: opponent.name, opponentPower: opponent.power, ...match };
+}
+
+/** Career mode's per-game win chance: starts identical to a normal Freeplay matchup (careerIndex 0,
+ * i.e. RLCS Season 1) and compounds harder every step up the ladder, shaving points off whichever
+ * side you'd normally be favored/underdog at -- so even a genuinely stronger-rated late-career
+ * roster can't just coast, matching "fight your way up, exponentially harder" from the design brief.
+ * Floored at 15% so the very top of the ladder stays theoretically winnable, never a guaranteed loss. */
+export function careerWinChance(ownPower: number, opponentPower: number, careerIndex: number) {
+  const base = winProbability(ownPower, opponentPower);
+  const drag = Math.min(35, Math.round((Math.pow(1.22, careerIndex) - 1) * 4));
+  return Math.max(15, base - drag);
+}
+
+export function simulateCareerStage(team: DraftTeam, stage: PlayoffStage, opponent: { name: string; power: number }, careerIndex: number): TournamentResult {
+  const power = teamPower(team);
+  const match = bo7(careerWinChance(power, opponent.power, careerIndex));
   return { round: stage, opponent: opponent.name, opponentPower: opponent.power, ...match };
 }
 
@@ -76,7 +109,8 @@ export const defaultOpponents = [
   { name: "Vitality Icons", power: 97.8 },
 ];
 
-/** Builds the 4 bracket opponents from the real teams of a season, weakest to strongest. */
+/** Builds 4 bracket opponents from the real teams of a season, escalating in difficulty but
+ * randomized within each band so replaying the same season doesn't always face the same 4 teams. */
 export function seasonOpponents(seasonCards: DraftCard[]) {
   const byTeam = new Map<string, number[]>();
   for (const card of seasonCards) {
@@ -87,6 +121,26 @@ export function seasonOpponents(seasonCards: DraftCard[]) {
     .map(([name, ratings]) => ({ name, power: Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10 }))
     .sort((a, b) => a.power - b.power);
   if (teams.length < playoffStages.length) return defaultOpponents;
-  const pickAt = (fraction: number) => teams[Math.min(teams.length - 1, Math.floor(fraction * (teams.length - 1)))];
-  return [pickAt(0.35), pickAt(0.6), pickAt(0.85), pickAt(1)];
+  // Each stage draws from a widening slice of the strength-sorted field so Top 16 is never the
+  // very weakest team and the Final is never anyone but a genuine top team, but which team within
+  // that band is random.
+  const bands: [number, number][] = [[0.2, 0.55], [0.4, 0.75], [0.65, 0.92], [0.85, 1]];
+  const used = new Set<string>();
+  return bands.map(([lo, hi]) => {
+    const loIdx = Math.floor(lo * (teams.length - 1));
+    const hiIdx = Math.max(loIdx, Math.floor(hi * (teams.length - 1)));
+    const candidates = teams.slice(loIdx, hiIdx + 1).filter((t) => !used.has(t.name));
+    const options = candidates.length > 0 ? candidates : teams.filter((t) => !used.has(t.name));
+    const pick = options[Math.floor(Math.random() * options.length)] ?? teams[teams.length - 1];
+    used.add(pick.name);
+    return pick;
+  });
+}
+
+/** Coins awarded for reaching (not necessarily winning) a stage, scaled by how strong that
+ * stage's opponent was -- beating a tougher team is worth more. */
+export function coinsForStage(stageIndex: number, opponentPower: number) {
+  const base = [4, 8, 16, 30][stageIndex] ?? 4;
+  const strengthBonus = Math.max(0, Math.round((opponentPower - 70) / 3));
+  return base + strengthBonus;
 }

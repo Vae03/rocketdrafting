@@ -8,4 +8,9 @@ import seasonsData from "@/data/rlcs-seasons-meta.json";
 // full player pool) and portraits are hotlinked from Liquipedia where a licensed image exists.
 export const seedCards: DraftCard[] = cardsData as DraftCard[];
 
-export const seasons: Season[] = [...(seasonsData as Season[])].sort((a, b) => b.year - a.year);
+// The "community" pseudo-season (see scripts/emit_data.py's MANUAL_ADDITIONS) isn't a real RLCS
+// season, so it's excluded from the season picker -- its cards still exist in seedCards and are
+// reachable through the All-Seasons Legends pool.
+export const seasons: Season[] = [...(seasonsData as Season[])]
+  .filter((s) => s.slug !== "community")
+  .sort((a, b) => a.year - b.year);
