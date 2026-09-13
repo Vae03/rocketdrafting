@@ -37,3 +37,23 @@ export function countryToIso(country?: string): string | null {
   if (!country) return null;
   return COUNTRY_TO_ISO[country.trim()] ?? null;
 }
+
+// Short codes for the region badge on player cards -- same abbreviations the user already used
+// themselves for the rating region order (EU>MENA>NA>SAM>OCE>APAC>SSA).
+const REGION_ABBREVIATIONS: Record<string, string> = {
+  "Europe": "EU",
+  "Middle East and North Africa": "MENA",
+  "North America": "NA",
+  "South America": "SAM",
+  "Oceania": "OCE",
+  "Asia-Pacific": "APAC",
+  "Asia-Pacific North": "APAC N",
+  "Asia-Pacific South": "APAC S",
+  "Asia": "ASIA",
+  "Sub-Saharan Africa": "SSA",
+  "Unknown": "—",
+};
+
+export function regionAbbreviation(region: string): string {
+  return REGION_ABBREVIATIONS[region] ?? region.slice(0, 4).toUpperCase();
+}

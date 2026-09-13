@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { DraftCard, DraftOrganization } from "@/lib/types";
-import { countryToIso } from "@/lib/flags";
+import { countryToIso, regionAbbreviation } from "@/lib/flags";
 import { FlagIcon } from "@/components/flag-icon";
 import { organizationPool } from "@/lib/organizations";
 import { scopedKey } from "@/lib/profile-scope";
@@ -38,10 +38,14 @@ function weightedSample<T extends { isHolo?: boolean }>(items: T[], count: numbe
   return picked;
 }
 
-/** `fallbackPool` (pass the full all-seasons card list) covers a season-scoped `pool` that has zero
- * eligible cards for a role -- e.g. RLCS Season 1 (2016) has no cards tagged COACH at all, since
- * Liquipedia doesn't credit coaches that early. Without a fallback, a season-locked draft (Freeplay
- * or Career) would offer 0 cards and get stuck forever on that pick. */
+/** `fallbackPool` (pass the full all-seasons card list) tops up a season-scoped `pool` that's too
+ * thin to offer a real 3-way choice for a role -- e.g. RLCS Season 1 (2016) has zero cards tagged
+ * COACH at all (Liquipedia doesn't credit coaches that early), and Seasons 2-7 only have 1-6 each.
+ * Left season-only, Career mode's early seasons would either get stuck with 0 offers or keep
+ * reoffering the same one or two coaches every single run, capping team power independent of the
+ * intended difficulty curve. Supplementing (not just falling back when empty) keeps the season's
+ * own real players preferred whenever there are enough of them, and only reaches into the wider
+ * pool for the remainder. */
 export function drawOffer(pool: DraftCard[], role: DraftCard["role"], excluded: string[], fallbackPool?: DraftCard[]) {
   const matches = (card: DraftCard) => {
     if (excluded.includes(card.id)) return false;
@@ -49,7 +53,11 @@ export function drawOffer(pool: DraftCard[], role: DraftCard["role"], excluded: 
     return card.role === role;
   };
   let eligible = pool.filter(matches);
-  if (eligible.length === 0 && fallbackPool) eligible = fallbackPool.filter(matches);
+  if (eligible.length < 3 && fallbackPool) {
+    const seasonIds = new Set(eligible.map((c) => c.id));
+    const supplement = fallbackPool.filter((c) => matches(c) && !seasonIds.has(c.id));
+    eligible = [...eligible, ...supplement];
+  }
   return weightedSample(eligible, 3);
 }
 
@@ -128,7 +136,10 @@ export function PlayerCard({ card, onPick, index, hideRating, showSeason }: { ca
     <div className="card-grid" /><div className="card-shine" />
     {card.isHolo && <div className="holo-shimmer" />}
     {card.isHolo && <span className="holo-tag">★ HOLO</span>}
-    <div className="card-top"><span className="card-region-badge">{iso && <FlagIcon iso={iso} className="card-flag" />}{card.region}</span><b>{hideRating ? "??" : card.rating}</b></div>
+    <div className="card-top">
+      <div className="card-top-left">{iso && <FlagIcon iso={iso} className="card-flag-big" />}</div>
+      <div className="card-top-right"><span className="card-region-abbr">{regionAbbreviation(card.region)}</span><b>{hideRating ? "??" : card.rating}</b></div>
+    </div>
     <div className="card-orb"><span>{card.handle.slice(0, 2).toUpperCase()}</span></div>
     <div className="card-bottom">
       <p>{card.team}{showSeason && <span className="card-season-tag">{card.seasonName}</span>}</p>
@@ -140,12 +151,12 @@ export function PlayerCard({ card, onPick, index, hideRating, showSeason }: { ca
 
 export const orgStepInfo = { title: "Sign an organization", accent: "00" };
 
-export function OrgCard({ org, onPick, index }: { org: DraftOrganization; onPick: () => void; index: number }) {
+export function OrgCard({ org, onPick, index, showBonus }: { org: DraftOrganization; onPick: () => void; index: number; showBonus?: boolean }) {
   return <button onClick={onPick} className="draft-card org-card" style={{ animationDelay: `${index * 75}ms`, "--org-color": org.color } as React.CSSProperties}>
     <div className="card-grid" /><div className="card-shine" />
-    <div className="card-top"><span>ORGANIZATION</span><b>?</b></div>
+    <div className="card-top"><span>ORGANIZATION</span><b>{showBonus ? `+${org.bonus}` : "?"}</b></div>
     <div className="card-orb org-orb"><span>{org.name.slice(0, 2).toUpperCase()}</span></div>
-    <div className="card-bottom"><p>SEALED SPONSOR OFFER</p><h3>{org.name}</h3><div><span>BONUS HIDDEN</span><strong>SELECT →</strong></div></div>
+    <div className="card-bottom"><p>SEALED SPONSOR OFFER</p><h3>{org.name}</h3><div><span>{showBonus ? `BONUS +${org.bonus}` : "BONUS HIDDEN"}</span><strong>SELECT →</strong></div></div>
   </button>;
 }
 

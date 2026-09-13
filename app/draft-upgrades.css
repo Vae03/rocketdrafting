@@ -398,8 +398,11 @@ html[data-badge-shape="shape-shield"] .team-badge { clip-path: polygon(50% 0, 10
 .game-row.lost em { color: #ff8f9a; }
 
 /* --- Card GUI overhaul: region badge, flags, season tag, holo --- */
-.card-region-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 20px; background: #ffffff1c; border: 1px solid #ffffff2e; font-size: 10px; font-weight: 900; letter-spacing: .1em; }
 .card-flag { display: inline-block; width: 16px; height: auto; vertical-align: -2px; border-radius: 2px; box-shadow: 0 0 0 1px #ffffff2e; flex: none; }
+.card-top-left { display: flex; align-items: flex-start; }
+.card-flag-big { width: 54px; height: auto; border-radius: 4px; box-shadow: 0 0 0 1px #ffffff33, 0 3px 10px #0008; flex: none; }
+.card-top-right { display: grid; justify-items: end; gap: 5px; }
+.card-region-abbr { display: inline-block; padding: 3px 10px; border-radius: 20px; background: #ffffff16; border: 1px solid #ffffff30; color: #f1eff8; font-size: 9px; font-weight: 900; letter-spacing: .12em; box-shadow: 0 0 12px #0004; }
 .card-season-tag { display: block; margin-top: 3px; color: #ffcf49cc; font-size: 9px; font-weight: 800; letter-spacing: .06em; }
 .holo-card { border-color: #fff8; position: relative; }
 .holo-shimmer {
@@ -412,10 +415,13 @@ html[data-badge-shape="shape-shield"] .team-badge { clip-path: polygon(50% 0, 10
   pointer-events: none;
 }
 @keyframes holoShift { 0% { background-position: 0% 0%; } 50% { background-position: 100% 100%; } 100% { background-position: 0% 0%; } }
-.holo-tag { position: absolute; top: 14px; right: 14px; z-index: 2; padding: 3px 8px; background: linear-gradient(100deg, #ff9ad6, #9ad6ff, #d6ff9a); color: #14101f; font-size: 9px; font-weight: 1000; letter-spacing: .06em; border-radius: 3px; }
+/* Centered between the flag (top-left) and the region/rating badge (top-right) so it doesn't
+   collide with either. */
+.holo-tag { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 2; padding: 3px 8px; background: linear-gradient(100deg, #ff9ad6, #9ad6ff, #d6ff9a); color: #14101f; font-size: 9px; font-weight: 1000; letter-spacing: .06em; border-radius: 3px; white-space: nowrap; }
 
 /* --- Mode picker --- */
 .mode-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.mode-grid.two-col { grid-template-columns: repeat(2, 1fr); }
 .mode-option { display: grid; gap: 8px; padding: 22px 18px; border: 1px solid #ffffff22; background: #161827; text-align: left; cursor: pointer; transition: transform .15s, border-color .15s; }
 .mode-option:hover { transform: translateY(-3px); }
 .mode-option .mode-icon { font-size: 26px; }
@@ -653,3 +659,12 @@ html[data-badge-shape="shape-shield"] .team-badge { clip-path: polygon(50% 0, 10
 @keyframes ladderPulse { 0%, 100% { box-shadow: 0 0 14px #ff8f3d33; } 50% { box-shadow: 0 0 26px #ff8f3d66; } }
 .career-arena .drafting-from b { color: #ff8f3d; }
 @media (max-width: 700px) { .ladder-track { grid-template-columns: repeat(2, 1fr); } }
+
+/* --- Explicit win/loss screen (Freeplay + Career) replacing the old auto-redraft-after-delay --- */
+.match-outcome-panel { animation: rowReveal .4s ease both; }
+.match-outcome-panel.won { border-color: #82f29c77; box-shadow: 0 0 90px #82f29c22; }
+.match-outcome-panel.won .kicker { color: #82f29c; }
+.match-outcome-panel.won .trophy { border-color: #82f29c; color: #82f29c; }
+.match-outcome-panel.lost { border-color: #ff8f9a77; box-shadow: 0 0 90px #ff8f9a22; }
+.match-outcome-panel.lost .kicker { color: #ff8f9a; }
+.match-outcome-panel.lost .trophy { border-color: #ff8f9a; color: #ff8f9a; }

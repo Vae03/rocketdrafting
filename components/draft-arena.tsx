@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   championXp,
   coinsEarned,
@@ -46,7 +46,6 @@ const roleInfo = {
 
 const STAGE_PAUSE_MS = 650;
 const GAME_REVEAL_MS = 380;
-const AUTO_REDRAFT_DELAY_MS = 4200;
 
 type DraftMode = "hardcore" | "normal" | "easy";
 const MODE_INFO: Record<DraftMode, { name: string; showRatings: boolean; maxRerolls: number; icon: string }> = {
@@ -136,6 +135,8 @@ export function DraftArena() {
   const [lastPick, setLastPick] = useState<DraftCard | null>(null);
   const [levelUp, setLevelUp] = useState<{ level: number; coins: number; particles: ReturnType<typeof levelUpParticles> } | null>(null);
   const [champion, setChampion] = useState(false);
+  const [matchOutcome, setMatchOutcome] = useState<"won" | "lost" | null>(null);
+  const matchSectionRef = useRef<HTMLElement>(null);
 
   useEffect(() => { writeStoredValue(XP_STORAGE_KEY, String(xp)); }, [xp]);
   useEffect(() => { writeStoredValue(COIN_STORAGE_KEY, String(coins)); }, [coins]);
@@ -219,12 +220,13 @@ export function DraftArena() {
     setOffer([]);
     setRerollsLeft(mode ? MODE_INFO[mode].maxRerolls : 0);
     setRerollsUsedThisDraft(0);
-    setResults([]); setLastPick(null); setChampion(false); setLiveStageIndex(-1); setLiveGames([]);
+    setResults([]); setLastPick(null); setChampion(false); setMatchOutcome(null); setLiveStageIndex(-1); setLiveGames([]);
   }
 
   async function simulate() {
     if (requiredRole || simulating || opponents.length === 0) return;
-    setSimulating(true); setResults([]); setChampion(false);
+    setSimulating(true); setResults([]); setChampion(false); setMatchOutcome(null);
+    matchSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     const collected: TournamentResult[] = [];
     let xpGained = 0;
     let coinGain = 0;
@@ -252,6 +254,7 @@ export function DraftArena() {
     if (collected.length >= 4) incrementStat("finalsReached", 1);
     if (wonItAll) {
       setChampion(true);
+      setMatchOutcome("won");
       const stats = incrementStat("campaignWins", 1);
       const newStreak = stats.campaignWinStreak + 1;
       updateStats({ campaignWinStreak: newStreak, campaignBestWinStreak: Math.max(stats.campaignBestWinStreak, newStreak) });
@@ -259,6 +262,7 @@ export function DraftArena() {
       if (rerollsUsedThisDraft === 0) incrementStat("noRerollChampionships", 1);
       if (season) updateStats({ championshipSeasons: [...new Set([...readStats().championshipSeasons, season.slug])] });
     } else {
+      setMatchOutcome("lost");
       incrementStat("campaignLosses", 1);
       updateStats({ campaignWinStreak: 0 });
     }
@@ -271,7 +275,6 @@ export function DraftArena() {
       setCoins((c) => c + levelUpGained);
       setLevelUp({ level: levelFromXp(newXp).level, coins: levelUpGained, particles: levelUpParticles(readEquipped().fx) });
     }
-    if (!wonItAll) { await delay(AUTO_REDRAFT_DELAY_MS); restart(); }
   }
 
   const current = requiredRole ? roleInfo[requiredRole] : null;
@@ -292,8 +295,18 @@ export function DraftArena() {
       {!season ? <SeasonPicker seasons={allSeasons} onPick={pickSeason} /> : !mode ? <ModePicker onPick={pickMode} /> : <>
         <p className="drafting-from kicker">DRAFTING FROM · <button onClick={changeSeason} className="link-button">{season.name}</button> · <button onClick={changeMode} className="link-button">{MODE_INFO[mode].name} mode</button> · <button onClick={restart} className="link-button">↻ restart</button></p>
         <div className="draft-progress">{["ORG", "S1", "S2", "S3", "SUB", "COACH"].map((slot, index) => { const done = index === 0 ? Boolean(team.organization) : Boolean(picked[index - 1]); const isActive = index === 0 ? !team.organization : index - 1 === picked.length && Boolean(team.organization); return <div key={slot} className={done ? "progress-node complete" : isActive ? "progress-node active" : "progress-node"}><span>{done ? "✓" : String(index + 1).padStart(2, "0")}</span><small>{slot}</small></div>; })}</div>
-        {currentStep === "ORG" ? <section className="pick-zone"><div className="pick-heading"><span>{orgStepInfo.accent}</span><div><p className="kicker">LIVE DRAFT PICK</p><h2>{orgStepInfo.title}</h2></div><div className="pick-count">PICK <b>1</b> / 6</div></div><div className="cards">{orgOffer.map((org, index) => <OrgCard key={org.id} org={org} index={index} onPick={() => pickOrg(org)} />)}</div>{rerollsLeft > 0 && <button className="reroll-button" onClick={reroll}>🎲 REROLL ({rerollsLeft} left)</button>}</section>
-        : current ? <section className="pick-zone"><div className="pick-heading"><span>{current.accent}</span><div><p className="kicker">LIVE DRAFT PICK</p><h2>{current.title}</h2></div><div className="pick-count">PICK <b>{picked.length + 2}</b> / 6</div></div><div className="cards">{offer.map((card, index) => <PlayerCard key={card.id} card={card} index={index} hideRating={!showRatings} showSeason={isLegends} onPick={() => pick(card)} />)}</div>{rerollsLeft > 0 && <button className="reroll-button" onClick={reroll}>🎲 REROLL ({rerollsLeft} left)</button>}{lastPick && <p className="picked-flash">✓ <b>{lastPick.handle}</b> joins your roster</p>}</section> : <section className="roster-ready"><div className="trophy">♜</div><div><p className="kicker">ROSTER COMPLETE</p><h2>YOUR DYNASTY IS READY</h2><p>Team power: <b>{showRatings ? power : "???"}</b></p></div><button onClick={simulate} disabled={simulating} className="playoff-button">{simulating ? "SIMULATING…" : "SIMULATE PLAYOFFS"} <span>→</span></button></section>}
+        {currentStep === "ORG" ? <section className="pick-zone"><div className="pick-heading"><span>{orgStepInfo.accent}</span><div><p className="kicker">LIVE DRAFT PICK</p><h2>{orgStepInfo.title}</h2></div><div className="pick-count">PICK <b>1</b> / 6</div></div><div className="cards">{orgOffer.map((org, index) => <OrgCard key={org.id} org={org} index={index} showBonus={showRatings} onPick={() => pickOrg(org)} />)}</div>{rerollsLeft > 0 && <button className="reroll-button" onClick={reroll}>🎲 REROLL ({rerollsLeft} left)</button>}</section>
+        : current ? <section className="pick-zone"><div className="pick-heading"><span>{current.accent}</span><div><p className="kicker">LIVE DRAFT PICK</p><h2>{current.title}</h2></div><div className="pick-count">PICK <b>{picked.length + 2}</b> / 6</div></div><div className="cards">{offer.map((card, index) => <PlayerCard key={card.id} card={card} index={index} hideRating={!showRatings} showSeason={isLegends} onPick={() => pick(card)} />)}</div>{rerollsLeft > 0 && <button className="reroll-button" onClick={reroll}>🎲 REROLL ({rerollsLeft} left)</button>}{lastPick && <p className="picked-flash">✓ <b>{lastPick.handle}</b> joins your roster</p>}</section>
+          : matchOutcome ? <section className={`roster-ready match-outcome-panel ${matchOutcome}`}>
+            <div className="trophy">{matchOutcome === "won" ? "🏆" : "☠"}</div>
+            <div>
+              <p className="kicker">{matchOutcome === "won" ? "CHAMPION" : "ELIMINATED"}</p>
+              <h2>{matchOutcome === "won" ? "GRAND FINAL WON" : `OUT — ${results[results.length - 1]?.round.toUpperCase()}`}</h2>
+              <p>Record: <b>{results.filter((r) => r.won).length}–{results.filter((r) => !r.won).length}</b> · Team power: <b>{showRatings ? power : "???"}</b></p>
+            </div>
+            <button onClick={restart} className="playoff-button">NEW DRAFT <span>→</span></button>
+          </section>
+          : <section className="roster-ready"><div className="trophy">♜</div><div><p className="kicker">ROSTER COMPLETE</p><h2>YOUR DYNASTY IS READY</h2><p>Team power: <b>{showRatings ? power : "???"}</b></p></div><button onClick={simulate} disabled={simulating} className="playoff-button">{simulating ? "SIMULATING…" : "SIMULATE PLAYOFFS"} <span>→</span></button></section>}
 
         <section className="lineup-section">
           <div className="panel-title"><span>YOUR LINEUP</span><b>{power ? (showRatings ? `${power} POWER` : "HIDDEN") : "BUILDING"}</b></div>
@@ -302,7 +315,7 @@ export function DraftArena() {
           </div>
         </section>
 
-        <section className="match-section">
+        <section className="match-section" ref={matchSectionRef}>
           <div className="panel-title"><span>PLAYOFF RUN</span><b>{season.name} · BO7 · MATCH-BY-MATCH</b></div>
           <div className="stage-panels">
             {playoffStages.map((stage, index) => {
@@ -313,7 +326,7 @@ export function DraftArena() {
               return <StagePanel key={stage} stage={stage} opponentName={opponentName} result={result} isPending={isPending} revealedGames={isPending ? liveGames : []} />;
             })}
           </div>
-          {results.length > 0 && !simulating && <p className="xp-earned">{results.some((r) => !r.won) ? "ELIMINATED — NEW DRAFT STARTING…" : "XP + COINS AWARDED — KEEP DRAFTING"}</p>}
+          {results.length > 0 && !simulating && <p className="xp-earned">XP + COINS AWARDED</p>}
         </section>
       </>}
     </section>

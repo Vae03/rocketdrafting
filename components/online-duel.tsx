@@ -251,7 +251,7 @@ export function OnlineDuel() {
               {rankDown && <p className="rank-down-banner">⬇ RANK DOWN — {rankDown.name}</p>}
               <button className="playoff-button" onClick={newOpponent}>FIND NEW MATCH <span>→</span></button>
             </section> : submitting ? <p className="power-rule">Submitting match…</p>
-              : currentStep === "ORG" ? <section className="pick-zone"><div className="pick-heading"><span>{orgStepInfo.accent}</span><div><p className="kicker">RANKED DRAFT</p><h2>{orgStepInfo.title}</h2></div><div className="pick-count">PICK <b>1</b> / 6</div></div><div className="cards">{orgOffer.map((org, index) => <OrgCard key={org.id} org={org} index={index} onPick={() => pickOrg(org)} />)}</div></section>
+              : currentStep === "ORG" ? <section className="pick-zone"><div className="pick-heading"><span>{orgStepInfo.accent}</span><div><p className="kicker">RANKED DRAFT</p><h2>{orgStepInfo.title}</h2></div><div className="pick-count">PICK <b>1</b> / 6</div></div><div className="cards">{orgOffer.map((org, index) => <OrgCard key={org.id} org={org} index={index} showBonus onPick={() => pickOrg(org)} />)}</div></section>
               : current ? <section className="pick-zone"><div className="pick-heading"><span>{current.accent}</span><div><p className="kicker">RANKED DRAFT</p><h2>{current.title}</h2></div><div className="pick-count">PICK <b>{picked.length + 2}</b> / 6</div></div><div className="cards">{offer.map((card, index) => <PlayerCard key={card.id} card={card} index={index} showSeason onPick={() => pick(card)} />)}</div>{lastPick && <p className="picked-flash">✓ <b>{lastPick.handle}</b> joins your roster</p>}</section>
               : <p className="power-rule">Roster locked — submitting…</p>}
           </div>

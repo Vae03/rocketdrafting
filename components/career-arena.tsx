@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   championXp,
   coinsEarned,
@@ -16,7 +16,7 @@ import { seasons as allSeasons, seedCards } from "@/lib/seed-data";
 import { useTranslation } from "@/components/i18n-provider";
 import { countryToIso } from "@/lib/flags";
 import { FlagIcon } from "@/components/flag-icon";
-import { advanceCareer, readCareer, type CareerState } from "@/lib/career";
+import { advanceCareer, readCareer, type CareerDifficulty, type CareerState } from "@/lib/career";
 import { incrementStat, raiseStatCeiling, todayKey, updateStats, readStats } from "@/lib/stats";
 import type { DraftCard, DraftOrganization, DraftTeam, Season, TournamentResult } from "@/lib/types";
 import {
@@ -46,8 +46,12 @@ const roleInfo = {
 
 const STAGE_PAUSE_MS = 650;
 const GAME_REVEAL_MS = 380;
-const AUTO_REDRAFT_DELAY_MS = 4200;
 const MAX_REROLLS = 3;
+
+const DIFFICULTY_INFO: Record<CareerDifficulty, { name: string; icon: string; blurb: string }> = {
+  normal: { name: "Normal", icon: "⚙", blurb: "Ratings and the org bonus stay visible the whole way up." },
+  hardcore: { name: "Hardcore", icon: "🕶", blurb: "No ratings, no org bonus -- climb the entire ladder on gut instinct." },
+};
 
 /** Reward scaling for the extra risk of climbing higher -- modest and linear (the difficulty curve
  * itself is exponential via lib/simulation.ts's careerWinChance; rewards just need to keep pace). */
@@ -77,7 +81,7 @@ function StagePanel({ stage, opponentName, result, isPending, revealedGames }: {
   </div>;
 }
 
-function LineupCard({ player, position }: { player?: DraftCard; position: string }) {
+function LineupCard({ player, position, showRatings }: { player?: DraftCard; position: string; showRatings: boolean }) {
   const iso = player ? countryToIso(player.country) : null;
   return <div className={player ? `lineup-card filled${player.isHolo ? " holo-card" : ""}` : "lineup-card"}>
     {player?.isHolo && <div className="holo-shimmer" />}
@@ -86,15 +90,29 @@ function LineupCard({ player, position }: { player?: DraftCard; position: string
       <div className="lineup-card-avatar">{iso ? <FlagIcon iso={iso} className="card-flag" /> : null}<span>{player.handle.slice(0, 2).toUpperCase()}</span></div>
       <b>{player.handle}</b>
       <span className="lineup-card-team">{player.team}</span>
-      <strong>{player.rating}</strong>
+      <strong>{showRatings ? player.rating : "??"}</strong>
     </> : <div className="lineup-card-empty">—</div>}
   </div>;
 }
 
-function CareerLadder({ seasons, career, onPick }: { seasons: Season[]; career: CareerState; onPick: (index: number) => void }) {
+function DifficultyPicker({ onPick }: { onPick: (d: CareerDifficulty) => void }) {
+  return <section className="season-select">
+    <div className="panel-title"><span>STEP 1</span><b>PICK A DIFFICULTY</b></div>
+    <div className="mode-grid two-col">
+      {(Object.keys(DIFFICULTY_INFO) as CareerDifficulty[]).map((key) => { const d = DIFFICULTY_INFO[key]; return <button key={key} onClick={() => onPick(key)} className={`mode-option mode-${key}`}>
+        <span className="mode-icon">{d.icon}</span><b>{d.name}</b><p>{d.blurb}</p>
+      </button>; })}
+    </div>
+  </section>;
+}
+
+function CareerLadder({ seasons, career, difficulty, onPick, onChangeDifficulty }: {
+  seasons: Season[]; career: CareerState; difficulty: CareerDifficulty; onPick: (index: number) => void; onChangeDifficulty: () => void;
+}) {
   const complete = career.unlockedIndex === seasons.length - 1 && career.clearedSlugs.includes(seasons[seasons.length - 1]?.slug);
   return <section className="season-select career-ladder">
-    <div className="panel-title"><span>THE CLIMB</span><b>{complete ? "CAREER COMPLETE" : `SEASON ${career.unlockedIndex + 1} OF ${seasons.length}`}</b></div>
+    <div className="panel-title"><span>THE CLIMB · {DIFFICULTY_INFO[difficulty].name.toUpperCase()}</span><b>{complete ? "CAREER COMPLETE" : `SEASON ${career.unlockedIndex + 1} OF ${seasons.length}`}</b></div>
+    <p className="drafting-from kicker">{DIFFICULTY_INFO[difficulty].icon} {DIFFICULTY_INFO[difficulty].name} path · <button onClick={onChangeDifficulty} className="link-button">↻ change difficulty</button></p>
     {complete && <p className="career-complete-banner">🏆 You&rsquo;ve climbed from RLCS Season 1 all the way to the present. Keep replaying the top for coins and XP.</p>}
     <div className="ladder-track">
       {seasons.map((season, index) => {
@@ -114,7 +132,8 @@ function CareerLadder({ seasons, career, onPick }: { seasons: Season[]; career: 
 
 export function CareerArena() {
   const { t } = useTranslation();
-  const [career, setCareer] = useState<CareerState>(() => readCareer());
+  const [difficulty, setDifficulty] = useState<CareerDifficulty | null>(null);
+  const [career, setCareer] = useState<CareerState>({ unlockedIndex: 0, clearedSlugs: [] });
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [team, setTeam] = useState<DraftTeam>({ starters: [] });
   const [orgOffer, setOrgOffer] = useState<DraftOrganization[]>([]);
@@ -129,11 +148,14 @@ export function CareerArena() {
   const [lastPick, setLastPick] = useState<DraftCard | null>(null);
   const [levelUp, setLevelUp] = useState<{ level: number; coins: number; particles: ReturnType<typeof levelUpParticles> } | null>(null);
   const [advanced, setAdvanced] = useState<{ clearedSeason: string; nextSeason: string | null } | null>(null);
+  const [matchOutcome, setMatchOutcome] = useState<"won" | "lost" | null>(null);
+  const matchSectionRef = useRef<HTMLElement>(null);
 
   useEffect(() => { writeStoredValue(XP_STORAGE_KEY, String(xp)); }, [xp]);
   useEffect(() => { writeStoredValue(COIN_STORAGE_KEY, String(coins)); }, [coins]);
   useEffect(() => { raiseStatCeiling("peakCoins", coins); }, [coins]);
 
+  const showRatings = difficulty === "normal";
   const season = activeIndex !== null ? allSeasons[activeIndex] : null;
   const seasonPool = useMemo(() => (season ? seedCards.filter((card) => card.season === season.slug) : []), [season]);
   const rawOpponents = useMemo(() => (season ? seasonOpponents(seasonPool) : []), [season, seasonPool]);
@@ -144,18 +166,29 @@ export function CareerArena() {
   const progress = levelFromXp(xp);
   const rewardMult = activeIndex !== null ? careerRewardMultiplier(activeIndex) : 1;
 
+  function pickDifficulty(d: CareerDifficulty) {
+    setDifficulty(d);
+    setCareer(readCareer(d));
+  }
+
+  function changeDifficulty() {
+    setDifficulty(null);
+    setActiveIndex(null);
+    setTeam({ starters: [] }); setOrgOffer([]); setOffer([]); setResults([]); setLastPick(null); setAdvanced(null); setMatchOutcome(null);
+  }
+
   function enterSeason(index: number) {
     setActiveIndex(index);
     setTeam({ starters: [] });
     setOrgOffer(drawOrgOffer());
     setOffer([]);
     setRerollsLeft(MAX_REROLLS);
-    setResults([]); setLastPick(null); setAdvanced(null);
+    setResults([]); setLastPick(null); setAdvanced(null); setMatchOutcome(null);
   }
 
   function backToLadder() {
     setActiveIndex(null);
-    setTeam({ starters: [] }); setOrgOffer([]); setOffer([]); setResults([]); setLastPick(null); setAdvanced(null);
+    setTeam({ starters: [] }); setOrgOffer([]); setOffer([]); setResults([]); setLastPick(null); setAdvanced(null); setMatchOutcome(null);
   }
 
   function pickOrg(org: DraftOrganization) {
@@ -193,12 +226,13 @@ export function CareerArena() {
     setOrgOffer(drawOrgOffer());
     setOffer([]);
     setRerollsLeft(MAX_REROLLS);
-    setResults([]); setLastPick(null); setAdvanced(null); setLiveStageIndex(-1); setLiveGames([]);
+    setResults([]); setLastPick(null); setAdvanced(null); setLiveStageIndex(-1); setLiveGames([]); setMatchOutcome(null);
   }
 
   async function simulate() {
-    if (requiredRole || simulating || rawOpponents.length === 0 || activeIndex === null || !season) return;
-    setSimulating(true); setResults([]); setAdvanced(null);
+    if (requiredRole || simulating || rawOpponents.length === 0 || activeIndex === null || !season || !difficulty) return;
+    setSimulating(true); setResults([]); setAdvanced(null); setMatchOutcome(null);
+    matchSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     const collected: TournamentResult[] = [];
     let xpGained = 0;
     let coinGain = 0;
@@ -228,13 +262,15 @@ export function CareerArena() {
       updateStats({ careerWinStreak: newStreak, careerBestWinStreak: Math.max(stats.careerBestWinStreak, newStreak) });
       raiseStatCeiling("careerHighestSeasonIndex", activeIndex + 1);
       updateStats({ championshipSeasons: [...new Set([...readStats().championshipSeasons, season.slug])] });
-      const nextState = advanceCareer(season.slug, activeIndex, allSeasons.length);
+      const nextState = advanceCareer(difficulty, season.slug, activeIndex, allSeasons.length);
       setCareer(nextState);
       const nextSeason = activeIndex + 1 < allSeasons.length ? allSeasons[activeIndex + 1].name : null;
       setAdvanced({ clearedSeason: season.name, nextSeason });
+      setMatchOutcome("won");
     } else {
       incrementStat("careerLosses", 1);
       updateStats({ careerWinStreak: 0 });
+      setMatchOutcome("lost");
     }
 
     const newXp = xp + xpGained;
@@ -245,7 +281,6 @@ export function CareerArena() {
       setCoins((c) => c + levelUpGained);
       setLevelUp({ level: levelFromXp(newXp).level, coins: levelUpGained, particles: levelUpParticles(readEquipped().fx) });
     }
-    if (!wonItAll) { await delay(AUTO_REDRAFT_DELAY_MS); restartDraft(); }
   }
 
   const current = requiredRole ? roleInfo[requiredRole] : null;
@@ -264,21 +299,33 @@ export function CareerArena() {
     <section className="stage">
       <div className="hero-copy career-hero"><p className="kicker">{t("career_kicker")}</p><h1>{t("career_title1")}<br /><span>{t("career_title2")}</span></h1><p className="intro">{t("career_intro")}</p></div>
 
-      {!season ? <CareerLadder seasons={allSeasons} career={career} onPick={enterSeason} /> : <>
-        <p className="drafting-from kicker">CAREER · <b>{season.name}</b> · DIFFICULTY ×{rewardMult.toFixed(2)} · <button onClick={backToLadder} className="link-button">↻ back to ladder</button></p>
+      {!difficulty ? <DifficultyPicker onPick={pickDifficulty} />
+        : !season ? <CareerLadder seasons={allSeasons} career={career} difficulty={difficulty} onPick={enterSeason} onChangeDifficulty={changeDifficulty} /> : <>
+        <p className="drafting-from kicker">CAREER · <b>{season.name}</b> · {DIFFICULTY_INFO[difficulty].name} · REWARD ×{rewardMult.toFixed(2)} · <button onClick={backToLadder} className="link-button">↻ back to ladder</button></p>
         <div className="draft-progress">{["ORG", "S1", "S2", "S3", "SUB", "COACH"].map((slot, index) => { const done = index === 0 ? Boolean(team.organization) : Boolean(picked[index - 1]); const isActive = index === 0 ? !team.organization : index - 1 === picked.length && Boolean(team.organization); return <div key={slot} className={done ? "progress-node complete" : isActive ? "progress-node active" : "progress-node"}><span>{done ? "✓" : String(index + 1).padStart(2, "0")}</span><small>{slot}</small></div>; })}</div>
-        {currentStep === "ORG" ? <section className="pick-zone"><div className="pick-heading"><span>{orgStepInfo.accent}</span><div><p className="kicker">CAREER DRAFT PICK</p><h2>{orgStepInfo.title}</h2></div><div className="pick-count">PICK <b>1</b> / 6</div></div><div className="cards">{orgOffer.map((org, index) => <OrgCard key={org.id} org={org} index={index} onPick={() => pickOrg(org)} />)}</div>{rerollsLeft > 0 && <button className="reroll-button" onClick={reroll}>🎲 REROLL ({rerollsLeft} left)</button>}</section>
-        : current ? <section className="pick-zone"><div className="pick-heading"><span>{current.accent}</span><div><p className="kicker">CAREER DRAFT PICK</p><h2>{current.title}</h2></div><div className="pick-count">PICK <b>{picked.length + 2}</b> / 6</div></div><div className="cards">{offer.map((card, index) => <PlayerCard key={card.id} card={card} index={index} onPick={() => pick(card)} />)}</div>{rerollsLeft > 0 && <button className="reroll-button" onClick={reroll}>🎲 REROLL ({rerollsLeft} left)</button>}{lastPick && <p className="picked-flash">✓ <b>{lastPick.handle}</b> joins your roster</p>}</section>
-          : <section className="roster-ready"><div className="trophy">♜</div><div><p className="kicker">ROSTER COMPLETE</p><h2>{season.name.toUpperCase()} AWAITS</h2><p>Team power: <b>{power}</b></p></div><button onClick={simulate} disabled={simulating} className="playoff-button">{simulating ? "SIMULATING…" : "SIMULATE PLAYOFFS"} <span>→</span></button></section>}
+        {currentStep === "ORG" ? <section className="pick-zone"><div className="pick-heading"><span>{orgStepInfo.accent}</span><div><p className="kicker">CAREER DRAFT PICK</p><h2>{orgStepInfo.title}</h2></div><div className="pick-count">PICK <b>1</b> / 6</div></div><div className="cards">{orgOffer.map((org, index) => <OrgCard key={org.id} org={org} index={index} showBonus={showRatings} onPick={() => pickOrg(org)} />)}</div>{rerollsLeft > 0 && <button className="reroll-button" onClick={reroll}>🎲 REROLL ({rerollsLeft} left)</button>}</section>
+        : current ? <section className="pick-zone"><div className="pick-heading"><span>{current.accent}</span><div><p className="kicker">CAREER DRAFT PICK</p><h2>{current.title}</h2></div><div className="pick-count">PICK <b>{picked.length + 2}</b> / 6</div></div><div className="cards">{offer.map((card, index) => <PlayerCard key={card.id} card={card} index={index} hideRating={!showRatings} onPick={() => pick(card)} />)}</div>{rerollsLeft > 0 && <button className="reroll-button" onClick={reroll}>🎲 REROLL ({rerollsLeft} left)</button>}{lastPick && <p className="picked-flash">✓ <b>{lastPick.handle}</b> joins your roster</p>}</section>
+          : matchOutcome ? <section className={`roster-ready match-outcome-panel ${matchOutcome}`}>
+              <div className="trophy">{matchOutcome === "won" ? "🏆" : "☠"}</div>
+              <div>
+                <p className="kicker">{matchOutcome === "won" ? "SEASON CLEARED" : "ELIMINATED"}</p>
+                <h2>{matchOutcome === "won" ? `${season.name.toUpperCase()} CONQUERED` : `OUT — ${results[results.length - 1]?.round.toUpperCase()}`}</h2>
+                <p>Record: <b>{results.filter((r) => r.won).length}–{results.filter((r) => !r.won).length}</b> · Team power: <b>{showRatings ? power : "???"}</b></p>
+              </div>
+              {matchOutcome === "won"
+                ? <button onClick={backToLadder} className="playoff-button">BACK TO LADDER <span>→</span></button>
+                : <button onClick={restartDraft} className="playoff-button">RETRY SEASON <span>→</span></button>}
+            </section>
+          : <section className="roster-ready"><div className="trophy">♜</div><div><p className="kicker">ROSTER COMPLETE</p><h2>{season.name.toUpperCase()} AWAITS</h2><p>Team power: <b>{showRatings ? power : "???"}</b></p></div><button onClick={simulate} disabled={simulating} className="playoff-button">{simulating ? "SIMULATING…" : "SIMULATE PLAYOFFS"} <span>→</span></button></section>}
 
         <section className="lineup-section">
-          <div className="panel-title"><span>YOUR LINEUP</span><b>{power ? `${power} POWER` : "BUILDING"}</b></div>
+          <div className="panel-title"><span>YOUR LINEUP</span><b>{power ? (showRatings ? `${power} POWER` : "HIDDEN") : "BUILDING"}</b></div>
           <div className="lineup-cards">
-            {[...Array(5)].map((_, index) => { const p = picked[index]; const position = index < 3 ? `STARTER ${index + 1}` : index === 3 ? "SUB" : "COACH"; return <LineupCard key={position} player={p} position={position} />; })}
+            {[...Array(5)].map((_, index) => { const p = picked[index]; const position = index < 3 ? `STARTER ${index + 1}` : index === 3 ? "SUB" : "COACH"; return <LineupCard key={position} player={p} position={position} showRatings={showRatings} />; })}
           </div>
         </section>
 
-        <section className="match-section">
+        <section className="match-section" ref={matchSectionRef}>
           <div className="panel-title"><span>PLAYOFF RUN</span><b>{season.name} · BO7 · MATCH-BY-MATCH</b></div>
           <div className="stage-panels">
             {playoffStages.map((stage, index) => {
@@ -289,7 +336,7 @@ export function CareerArena() {
               return <StagePanel key={stage} stage={stage} opponentName={opponentName} result={result} isPending={isPending} revealedGames={isPending ? liveGames : []} />;
             })}
           </div>
-          {results.length > 0 && !simulating && <p className="xp-earned">{results.some((r) => !r.won) ? "ELIMINATED — NEW DRAFT STARTING…" : "SEASON CLEARED — NEXT SEASON UNLOCKED"}</p>}
+          {results.length > 0 && !simulating && <p className="xp-earned">XP + COINS AWARDED</p>}
         </section>
       </>}
     </section>
